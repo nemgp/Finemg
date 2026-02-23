@@ -7,3 +7,5 @@ python-dotenv>=1.0.0
 requests>=2.31.0
 scipy>=1.12.0
 ta>=0.11.0
+google-generativeai>=0.8.0
+feedparser>=6.0.0
