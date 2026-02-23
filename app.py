@@ -2,17 +2,21 @@
 app.py – Finemg · Dashboard PEA · Page d'accueil
 """
 import streamlit as st
+from pathlib import Path
 from database.db import init_db, get_setting, get_trades
 
 # ── Init ─────────────────────────────────────────────────────────────────────
 init_db()
 
+LOGO_PATH = Path(__file__).parent / "assets" / "logo.png"
+
 st.set_page_config(
     page_title="Finemg · Dashboard PEA",
-    page_icon="📈",
+    page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else "📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
 
 # ── CSS global ───────────────────────────────────────────────────────────────
 st.markdown("""
@@ -58,9 +62,15 @@ st.markdown("""
 
 # ── Header ───────────────────────────────────────────────────────────────────
 col_logo, col_title = st.columns([1, 9])
+with col_logo:
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=72)
+    else:
+        st.markdown("## 📈")
 with col_title:
-    st.markdown('<div class="brand-title">📈 Finemg</div>', unsafe_allow_html=True)
+    st.markdown('<div class="brand-title">Finemg</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Dashboard d\'aide à la décision boursière · Stratégie PEA bi-hebdomadaire</div>', unsafe_allow_html=True)
+
 
 st.markdown("---")
 

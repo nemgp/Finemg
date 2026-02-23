@@ -17,10 +17,20 @@ from analytics.targets import compute_target
 
 
 def _safe_normalize(series: pd.Series) -> pd.Series:
-    rng = series.max() - series.min()
-    if rng == 0:
+    """Normalize a Series to [0, 1]. Handles NaN, single values, and non-Series inputs."""
+    try:
+        # Ensure it's a flat Series of floats
+        s = pd.to_numeric(series, errors="coerce").dropna()
+        if len(s) == 0:
+            return pd.Series(0.5, index=series.index)
+        rng = s.max() - s.min()
+        if rng == 0 or pd.isna(rng):
+            return pd.Series(0.5, index=series.index)
+        normalized = (series - s.min()) / rng
+        return normalized.fillna(0.5)
+    except Exception:
         return pd.Series(0.5, index=series.index)
-    return (series - series.min()) / rng
+
 
 
 def compute_scores(investment: float = 100.0, gross_target_pct: float = 0.045,
@@ -41,48 +51,63 @@ def compute_scores(investment: float = 100.0, gross_target_pct: float = 0.045,
         if df is None or df.empty or len(df) < 60:
             continue
         try:
-            close = df["Close"].dropna()
-            vol   = df["Volume"].dropna()
+            # Robustly extract Close and Volume as flat float Series
+            if "Close" not in df.columns:
+                continue
+            close = pd.to_numeric(df["Close"].squeeze(), errors="coerce").dropna()
+            vol   = pd.to_numeric(df["Volume"].squeeze(), errors="coerce").dropna() \
+                    if "Volume" in df.columns else pd.Series(dtype=float)
+
+            if len(close) < 60:
+                continue
 
             # -- 12m relative return vs CAC 40 --
-            ret_12m = (close.iloc[-1] / close.iloc[0]) - 1
-            if not cac.empty:
-                cac_ret = (cac["Close"].iloc[-1] / cac["Close"].iloc[0]) - 1
+            ret_12m = float(close.iloc[-1]) / float(close.iloc[0]) - 1
+            if not cac.empty and "Close" in cac.columns:
+                cac_close = pd.to_numeric(cac["Close"].squeeze(), errors="coerce").dropna()
+                cac_ret   = float(cac_close.iloc[-1]) / float(cac_close.iloc[0]) - 1
             else:
                 cac_ret = 0.0
-            relative_ret = ret_12m - cac_ret
+            relative_ret = float(ret_12m) - float(cac_ret)
 
             # -- 3-month momentum (rate of change) --
             idx_3m = max(0, len(close) - 63)
-            mom_3m = (close.iloc[-1] / close.iloc[idx_3m]) - 1
+            mom_3m = float(close.iloc[-1]) / float(close.iloc[idx_3m]) - 1
 
             # -- 4-week stability (inverted weekly std) --
             weekly_returns = close.resample("W").last().pct_change().dropna()
-            last4w = weekly_returns.iloc[-4:] if len(weekly_returns) >= 4 else weekly_returns
-            stability = 1 / (1 + last4w.std()) if last4w.std() > 0 else 1.0
+            last4w    = weekly_returns.iloc[-4:] if len(weekly_returns) >= 4 else weekly_returns
+            wk_std    = float(last4w.std()) if len(last4w) > 1 else 0.0
+            stability = 1.0 / (1.0 + wk_std) if wk_std > 0 else 1.0
 
             # -- Liquidity (avg daily € volume, last 20 days) --
-            price_vol = (close * vol).iloc[-20:].mean()
+            if len(vol) > 0:
+                common_idx = close.index.intersection(vol.index)
+                price_vol  = float((close[common_idx] * vol[common_idx]).iloc[-20:].mean()) \
+                             if len(common_idx) > 0 else 0.0
+            else:
+                price_vol = 0.0
 
             current_price = float(close.iloc[-1])
             confidence    = compute_confidence(close)
             target        = compute_target(current_price, investment, gross_target_pct, fee)
 
             rows.append({
-                "ticker":        ticker,
-                "name":          meta.get(ticker, {}).get("name", ticker),
-                "sector":        meta.get(ticker, {}).get("sector", "—"),
-                "price":         round(current_price, 2),
-                "ret_12m":       round(relative_ret * 100, 2),
-                "mom_3m":        round(mom_3m * 100, 2),
-                "stability":     round(stability, 4),
-                "liquidity":     price_vol,
-                "confidence":    confidence,
-                "target":        round(target, 2),
-                "gross_pct":     round(gross_target_pct * 100, 2),
+                "ticker":    ticker,
+                "name":      meta.get(ticker, {}).get("name", ticker),
+                "sector":    meta.get(ticker, {}).get("sector", "—"),
+                "price":     round(current_price, 2),
+                "ret_12m":   round(relative_ret * 100, 2),
+                "mom_3m":    round(mom_3m * 100, 2),
+                "stability": round(stability, 4),
+                "liquidity": price_vol,
+                "confidence":confidence,
+                "target":    round(target, 2),
+                "gross_pct": round(gross_target_pct * 100, 2),
             })
         except Exception:
             continue
+
 
     if not rows:
         return pd.DataFrame()
