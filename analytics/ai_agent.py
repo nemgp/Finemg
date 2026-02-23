@@ -12,7 +12,16 @@ from data.news_fetcher import get_all_news, news_to_text
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# Try Streamlit secrets first (cloud), then .env (local)
+def _get_api_key() -> str:
+    try:
+        import streamlit as st
+        return st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        pass
+    return os.getenv("GEMINI_API_KEY", "")
+
+GEMINI_API_KEY = _get_api_key()
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """Tu es un gérant de fonds senior spécialisé dans le marché européen (PEA),
